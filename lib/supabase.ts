@@ -61,13 +61,27 @@ export async function signUp(
   password: string,
   profile: { name: string; dept: string; home_area: string; avatar: string }
 ) {
-  const { data, error } = await supabase.auth.signUp({ email, password })
+  // user_metadata에 프로필 정보도 함께 저장 (트리거 백업용)
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: profile },
+  })
   if (error) throw error
-  const uid = data.user!.id
+
+  const uid = data.user?.id
+  if (!uid) throw new Error('가입 처리 중 오류가 발생했어요')
+
+  // 프로필 직접 INSERT (RLS: WITH CHECK(true) 이므로 세션 없어도 가능)
   const { error: pe } = await supabase.from('profiles').insert({
     id: uid, rank: '', ...profile,
   })
-  if (pe) throw pe
+
+  // 이미 트리거로 생성됐거나 중복인 경우 무시
+  if (pe && !pe.message?.includes('duplicate') && pe.code !== '23505') {
+    throw pe
+  }
+
   return data
 }
 
