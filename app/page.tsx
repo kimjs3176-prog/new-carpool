@@ -123,13 +123,30 @@ export default function App() {
     if (rPw.length < 6)       { setRErr('비밀번호는 6자 이상이어야 해요'); return }
     setRErr(''); setRLoading(true)
     try {
-      await signUp(rEmail.trim(), rPw, {
+      const result = await signUp(rEmail.trim(), rPw, {
         name: rName.trim(), dept: rDept.trim(),
         home_area: rHome.trim(), avatar: rAvatar,
       })
-      toast('가입 완료! KOAT 카풀에 오신 것을 환영해요 🎉')
+      // session이 없으면 이메일 인증 필요, 있으면 바로 로그인
+      if (!result.session) {
+        setAuthMode('login')
+        setLEmail(rEmail.trim())
+        toast('📧 가입 완료! 이메일 인증 후 로그인해 주세요')
+      } else {
+        toast('가입 완료! KOAT 카풀에 오신 것을 환영해요 🎉')
+      }
     } catch (e: unknown) {
-      setRErr(e instanceof Error && e.message.includes('already') ? '이미 가입된 이메일이에요' : '가입에 실패했어요')
+      const msg = e instanceof Error ? e.message : ''
+      if (msg.includes('already') || msg.includes('already registered')) {
+        setRErr('이미 가입된 이메일이에요')
+      } else if (msg.includes('invalid') || msg.includes('Invalid')) {
+        setRErr('올바른 이메일 형식이 아니에요')
+      } else if (msg.includes('Password')) {
+        setRErr('비밀번호는 6자 이상이어야 해요')
+      } else {
+        setRErr('가입에 실패했어요. 잠시 후 다시 시도해 주세요')
+        console.error('Signup error:', e)
+      }
     } finally { setRLoading(false) }
   }
 
