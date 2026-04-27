@@ -4,6 +4,7 @@ import {
   supabase, getListings, createListing, sendMatchRequest,
   setMatched, updateRequestStatus, updateProfileTrips,
   signUp, signIn, signOut, getProfile,
+  addPaw, removePaw, getMyPaws,
   type Listing, type MatchRequest, type Profile,
 } from '../lib/supabase'
 
@@ -57,12 +58,19 @@ export default function App() {
   const [rErr,     setRErr]     = useState('')
   const [rLoading, setRLoading] = useState(false)
 
+  /* 개인정보 동의 */
+  const [rTerms,   setRTerms]   = useState(false)
+  const [rPrivacy, setRPrivacy] = useState(false)
+  const [showTermsModal,   setShowTermsModal]   = useState(false)
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false)
+
   /* 앱 상태 */
-  const [tab,      setTab]      = useState<'home'|'board'|'my'>('home')
+  const [tab,      setTab]      = useState<'home'|'board'|'my'|'paw'>('home')
   const [listings, setListings] = useState<Listing[]>([])
   const [myListings, setMyListings] = useState<Listing[]>([])
   const [reqs,     setReqs]     = useState<MatchRequest[]>([])
   const [sentIds,  setSentIds]  = useState<Set<string>>(new Set())
+  const [pawedIds, setPawedIds] = useState<Set<string>>(new Set())
   const [filter,   setFilter]   = useState('all')
   const [loading,  setLoading]  = useState(false)
   const [myGroup,  setMyGroup]  = useState<{name:string,dept:string,avatar:string,role:string}[]|null>(null)
@@ -124,6 +132,7 @@ export default function App() {
     if (!rHome.trim())        { setRErr('거주 지역을 입력해 주세요'); return }
     if (!rEmail.includes('@')){ setRErr('올바른 이메일을 입력해 주세요'); return }
     if (rPw.length < 6)       { setRErr('비밀번호는 6자 이상이어야 해요'); return }
+    if (!rTerms || !rPrivacy) { setRErr('서비스 이용약관 및 개인정보 수집·이용에 동의해 주세요'); return }
     setRErr(''); setRLoading(true)
     try {
       const result = await signUp(rEmail.trim(), rPw, {
@@ -158,7 +167,7 @@ export default function App() {
     await signOut()
     setUid(null); setProfile(null)
     setListings([]); setMyListings([]); setReqs([])
-    setSentIds(new Set()); setMyGroup(null); setTab('home')
+    setSentIds(new Set()); setPawedIds(new Set()); setMyGroup(null); setTab('home')
     toast('로그아웃 됐어요')
   }
 
@@ -178,6 +187,12 @@ export default function App() {
 
   useEffect(() => { if (profile) loadListings() }, [loadListings, profile])
 
+  /* ─── PAW 로드 ─── */
+  useEffect(() => {
+    if (!uid) return
+    getMyPaws(uid).then(ids => setPawedIds(new Set(ids))).catch(() => {})
+  }, [uid])
+
   /* Realtime */
   useEffect(() => {
     if (!uid) return
@@ -186,6 +201,22 @@ export default function App() {
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [uid, loadListings])
+
+  /* ─── PAW 토글 ─── */
+  async function togglePaw(e: React.MouseEvent, l: Listing) {
+    e.stopPropagation()
+    if (!uid) return
+    try {
+      if (pawedIds.has(l.id)) {
+        await removePaw(uid, l.id)
+        setPawedIds(prev => { const s = new Set(prev); s.delete(l.id); return s })
+      } else {
+        await addPaw(uid, l.id)
+        setPawedIds(prev => new Set([...prev, l.id]))
+        toast('찜 목록에 추가했어요 🐾')
+      }
+    } catch { toast('오류가 발생했어요') }
+  }
 
   /* ─── 매칭 요청 ─── */
   async function handleMatch(l: Listing) {
@@ -271,6 +302,7 @@ export default function App() {
     .filter(l => !l.matched && l.user_id !== uid)
     .sort((a, b) => (b.mp || 0) - (a.mp || 0))
     .slice(0, 3)
+  const pawedListings = listings.filter(l => pawedIds.has(l.id))
 
   function btnCls(l: Listing) {
     if (l.user_id === uid) return 'act-btn mine-btn'
@@ -377,8 +409,31 @@ export default function App() {
                 <label>비밀번호 <span className="opt">6자 이상</span></label>
                 <input className={`fi${rErr?' err':''}`} type="password" placeholder="비밀번호 설정"
                   value={rPw} onChange={e => setRPw(e.target.value)}/>
-                {rErr && <div className="err-msg">⚠ {rErr}</div>}
               </div>
+
+              {/* ── 약관 동의 ── */}
+              <div className="consent-box">
+                <div className="consent-title">약관 동의</div>
+                <label className="consent-item consent-all-row">
+                  <span className="consent-check" onClick={() => { setRTerms(!rTerms || !rPrivacy ? true : false); setRPrivacy(!rTerms || !rPrivacy ? true : false) }}>
+                    {rTerms && rPrivacy ? '☑' : '☐'}
+                  </span>
+                  <span className="consent-text consent-all-text">전체 동의</span>
+                </label>
+                <div className="consent-divider"/>
+                <label className="consent-item">
+                  <span className="consent-check" onClick={() => setRTerms(v => !v)}>{rTerms ? '☑' : '☐'}</span>
+                  <span className="consent-text">[필수] 서비스 이용약관</span>
+                  <button type="button" className="consent-view-btn" onClick={() => setShowTermsModal(true)}>보기</button>
+                </label>
+                <label className="consent-item">
+                  <span className="consent-check" onClick={() => setRPrivacy(v => !v)}>{rPrivacy ? '☑' : '☐'}</span>
+                  <span className="consent-text">[필수] 개인정보 수집·이용</span>
+                  <button type="button" className="consent-view-btn" onClick={() => setShowPrivacyModal(true)}>보기</button>
+                </label>
+              </div>
+
+              {rErr && <div className="err-msg" style={{marginBottom:10}}>⚠ {rErr}</div>}
               <button className="auth-btn green-btn" onClick={handleSignUp} disabled={rLoading}>
                 {rLoading ? <><div className="spinner"/>가입 중...</> : '가입하고 시작하기'}
               </button>
@@ -387,6 +442,41 @@ export default function App() {
           )}
         </div>
       </div>
+      {/* 이용약관 모달 */}
+      {showTermsModal && (
+        <div className="overlay" onClick={() => setShowTermsModal(false)}>
+          <div className="modal policy-modal" onClick={e => e.stopPropagation()}>
+            <div className="m-handle"/>
+            <div className="policy-title">서비스 이용약관</div>
+            <div className="policy-content">
+              <p><strong>제1조 (목적)</strong><br/>본 약관은 한국농업기술진흥원이 제공하는 KOAT CarPool 서비스의 이용조건 및 절차에 관한 사항을 규정합니다.</p>
+              <p><strong>제2조 (서비스 이용 대상)</strong><br/>본 서비스는 한국농업기술진흥원 재직 임직원에 한하여 이용 가능합니다. 퇴직 또는 계약 종료 시 계정이 비활성화됩니다.</p>
+              <p><strong>제3조 (이용자의 의무)</strong><br/>이용자는 카풀 등록 및 매칭 과정에서 허위 정보를 제공하지 않아야 하며, 다른 이용자에게 불쾌감을 주는 행위를 하여서는 아니 됩니다.</p>
+              <p><strong>제4조 (면책조항)</strong><br/>카풀 이용 중 발생하는 사고에 대해 기관은 법적 책임을 지지 않습니다. 이용자 간 자율적 합의에 의해 카풀이 운영됩니다.</p>
+            </div>
+            <button className="auth-btn" style={{marginTop:8}} onClick={() => { setRTerms(true); setShowTermsModal(false) }}>동의하고 닫기</button>
+          </div>
+        </div>
+      )}
+
+      {/* 개인정보 처리방침 모달 */}
+      {showPrivacyModal && (
+        <div className="overlay" onClick={() => setShowPrivacyModal(false)}>
+          <div className="modal policy-modal" onClick={e => e.stopPropagation()}>
+            <div className="m-handle"/>
+            <div className="policy-title">개인정보 수집·이용 동의</div>
+            <div className="policy-content">
+              <p><strong>수집 항목</strong><br/>이름, 소속 부서, 거주 지역, 이메일 주소, 출퇴근 경로 정보</p>
+              <p><strong>수집·이용 목적</strong><br/>사내 카풀 매칭 서비스 제공, 매칭 결과 안내, 부적절한 이용 방지</p>
+              <p><strong>보유 및 이용 기간</strong><br/>재직 기간 동안 보유하며, 퇴직 후 30일 이내에 파기합니다.</p>
+              <p><strong>제3자 제공</strong><br/>수집된 개인정보는 카풀 매칭 상대방(이름, 부서, 출발지)에게만 제공되며, 외부에 제공되지 않습니다.</p>
+              <p><strong>동의 거부 권리</strong><br/>개인정보 수집·이용에 동의하지 않을 경우 서비스 이용이 제한됩니다.</p>
+            </div>
+            <button className="auth-btn green-btn" style={{marginTop:8}} onClick={() => { setRPrivacy(true); setShowPrivacyModal(false) }}>동의하고 닫기</button>
+          </div>
+        </div>
+      )}
+
       <div className={`toast${toastVis?' show':''}`}>{toastMsg}</div>
     </div>
   )
@@ -394,6 +484,7 @@ export default function App() {
   /* ══ 카드 컴포넌트 ══ */
   function LCard({ l, onDetail }: { l: Listing; onDetail: () => void }) {
     const isMe = l.user_id === uid
+    const isPawed = pawedIds.has(l.id)
     return (
       <div className={`lcard ${l.type}${l.matched?' matched':''}${isMe?' mine':''}`} onClick={onDetail}>
         <div className="lc-head">
@@ -408,6 +499,12 @@ export default function App() {
             </div>
             <div className="lc-sub">{l.dept}{!isMe && ` · ★${l.rating}`}</div>
           </div>
+          {!isMe && (
+            <button className={`paw-btn${isPawed?' pawed':''}`}
+              onClick={e => togglePaw(e, l)} title={isPawed ? '찜 해제' : '찜하기'}>
+              🐾
+            </button>
+          )}
           <span className={`badge ${l.type==='driver'?'blue':'green'}`}>
             {l.type==='driver'?'드라이버':'동승자'}
           </span>
@@ -493,6 +590,43 @@ export default function App() {
   return (
     <div className="app">
       <div className={`toast${toastVis?' show':''}`}>{toastMsg}</div>
+
+      {/* ── SIDE NAV (desktop) ── */}
+      <nav className="side-nav">
+        <div className="side-logo">
+          <div className="side-logo-mark">🌾</div>
+          <div>
+            <div className="side-logo-title">KOAT CarPool</div>
+            <div className="side-logo-sub">사내 카풀 매칭</div>
+          </div>
+        </div>
+        <div className="side-nav-items">
+          {([
+            { id:'home' as const, icon:'🏠', label:'홈', badge:0 },
+            { id:'board' as const, icon:'📋', label:'매칭보드', badge:0 },
+            { id:'paw' as const, icon:'🐾', label:'찜한 카풀', badge: pawedIds.size },
+            { id:'my' as const, icon:'👤', label:'내 카풀', badge: reqs.length },
+          ]).map(item => (
+            <button key={item.id} className={`side-nav-item${tab===item.id?' active':''}`}
+              onClick={() => setTab(item.id)}>
+              <span className="side-nav-icon">{item.icon}</span>
+              <span className="side-nav-label">{item.label}</span>
+              {item.badge > 0 && <span className="side-nav-badge">{item.badge}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="side-profile">
+          <div className="side-profile-av">{profile.avatar}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="side-profile-name">{profile.name}</div>
+            <div className="side-profile-dept">{profile.dept}</div>
+          </div>
+          <button className="side-logout-btn" onClick={handleSignOut} title="로그아웃">🚪</button>
+        </div>
+      </nav>
+
+      {/* ── MAIN CONTENT ── */}
+      <div className="main-content">
 
       {/* ── HOME ── */}
       <div style={{display:tab==='home'?'flex':'none',flexDirection:'column',flex:1,overflow:'hidden'}}>
@@ -667,6 +801,10 @@ export default function App() {
                 <div className="pb-stat-num">{profile.rating.toFixed(1)}</div>
                 <div className="pb-stat-lbl">나의 평점</div>
               </div>
+              <div className="pb-stat" style={{cursor:'pointer'}} onClick={() => setTab('paw')}>
+                <div className="pb-stat-num" style={{color:'#F59E0B'}}>{pawedIds.size}</div>
+                <div className="pb-stat-lbl">🐾 찜한 카풀</div>
+              </div>
             </div>
           </div>
 
@@ -756,6 +894,31 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── PAW 탭 ── */}
+      <div style={{display:tab==='paw'?'flex':'none',flexDirection:'column',flex:1,overflow:'hidden'}}>
+        <div className="header">
+          <div className="header-row">
+            <div>
+              <div className="header-title">찜한 카풀 🐾</div>
+              <div className="header-sub">관심 있는 카풀 목록</div>
+            </div>
+          </div>
+        </div>
+        <div style={{flex:1,overflow:'auto',paddingBottom:84,scrollbarWidth:'none' as const}}>
+          <div className="card-list">
+            {pawedListings.length === 0
+              ? <div className="empty">
+                  <div className="empty-icon">🐾</div>
+                  <div className="empty-title">찜한 카풀이 없어요</div>
+                  <div className="empty-desc">매칭보드에서 🐾 버튼으로<br/>관심 카풀을 저장해 보세요</div>
+                </div>
+              : pawedListings.map(l => <LCard key={l.id} l={l} onDetail={() => setDetail(l)}/>)}
+          </div>
+        </div>
+      </div>
+
+      </div>{/* ── end main-content ── */}
+
       {/* ── BOTTOM NAV ── */}
       <nav className="bottom-nav">
         <button className={`nav-item${tab==='home'?' active':''}`} onClick={() => setTab('home')}>
@@ -763,6 +926,10 @@ export default function App() {
         </button>
         <button className={`nav-item${tab==='board'?' active':''}`} onClick={() => setTab('board')}>
           <span className="nav-icon">📋</span><span className="nav-label">매칭보드</span>
+        </button>
+        <button className={`nav-item${tab==='paw'?' active':''}`} onClick={() => setTab('paw')}>
+          <div className={`nav-dot${pawedIds.size>0?' show':''}`} style={{background:'#F59E0B'}}/>
+          <span className="nav-icon">🐾</span><span className="nav-label">찜</span>
         </button>
         <button className={`nav-item${tab==='my'?' active':''}`} onClick={() => setTab('my')}>
           <div className={`nav-dot${reqs.length>0?' show':''}`}/>

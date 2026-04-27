@@ -50,12 +50,28 @@ create policy "requests_select" on match_requests for select using (true);
 create policy "requests_insert" on match_requests for insert with check (true);
 create policy "requests_update" on match_requests for update using (true);
 
+-- 찜(PAW) 테이블
+create table if not exists paws (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null,
+  listing_id  uuid not null references listings(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  unique(user_id, listing_id)
+);
+
+alter table paws enable row level security;
+create policy "paws_select" on paws for select using (true);
+create policy "paws_insert" on paws for insert with check (true);
+create policy "paws_delete" on paws for delete using (true);
+
 -- 인덱스
 create index if not exists idx_listings_type    on listings(type);
 create index if not exists idx_listings_dept    on listings(dept);
 create index if not exists idx_listings_matched on listings(matched);
 create index if not exists idx_requests_listing on match_requests(listing_id);
 create index if not exists idx_requests_status  on match_requests(status);
+create index if not exists idx_paws_user        on paws(user_id);
+create index if not exists idx_paws_listing     on paws(listing_id);
 
 -- 샘플 데이터
 insert into listings (type, name, dept, rank, avatar, from_loc, via_loc, direction, depart_time, seats, cost, days, tags, rating, review_cnt) values

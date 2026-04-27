@@ -151,3 +151,21 @@ export async function updateRequestStatus(id: string, status: 'accepted' | 'decl
 export async function updateProfileTrips(uid: string, trips: number) {
   await supabase.from('profiles').update({ trips }).eq('id', uid)
 }
+
+// ── 찜(PAW) ──────────────────────────────────
+export async function addPaw(userId: string, listingId: string) {
+  const { error } = await supabase.from('paws').insert({ user_id: userId, listing_id: listingId })
+  if (error && error.code !== '23505') throw error
+}
+
+export async function removePaw(userId: string, listingId: string) {
+  const { error } = await supabase.from('paws').delete()
+    .eq('user_id', userId).eq('listing_id', listingId)
+  if (error) throw error
+}
+
+export async function getMyPaws(userId: string): Promise<string[]> {
+  const { data, error } = await supabase.from('paws').select('listing_id').eq('user_id', userId)
+  if (error) return []
+  return (data ?? []).map((r: { listing_id: string }) => r.listing_id)
+}
