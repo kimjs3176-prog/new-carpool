@@ -1334,7 +1334,11 @@ html, body { height: 100%; background: var(--bg); font-family: 'Pretendard', -ap
    WEB RESPONSIVE
 ══════════════════════════════ */
 .main-content {
-  display: flex; flex-direction: column; flex: 1; overflow: hidden;
+  display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0;
+}
+/* 탭 내부 스크롤 컨테이너 공통 — flex 높이 전파 보장 */
+.main-content > div {
+  min-height: 0;
 }
 
 @media (min-width: 768px) {
